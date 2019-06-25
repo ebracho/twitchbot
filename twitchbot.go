@@ -43,7 +43,7 @@ func (t *Client) handle(c *irc.Client, m *irc.Message) {
 	case RPL_WELCOME:
 		c.WriteMessage(&irc.Message{
 			Command: "JOIN",
-			Params:  t.Channels,
+			Params:  []string{strings.Join(t.Channels, ",")},
 		})
 	case "PING":
 		c.WriteMessage(&irc.Message{
