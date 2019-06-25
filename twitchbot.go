@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/go-irc/irc"
 )
@@ -14,18 +15,21 @@ type Message struct {
 	Text   string
 }
 
-type HandlerFunc func(m *Message) string
+type HandlerFunc func(channel, text string, client *Client)
 
-type TwitchBot struct {
+type Client struct {
 	User       string
 	Channels   []string
 	OAuthToken string
 
 	handlers map[*regexp.Regexp]HandlerFunc
+
+	client    *irc.Client
+	clientMux sync.Mutex
 }
 
-func New(user string, channels []string, token string) *TwitchBot {
-	return &TwitchBot{
+func New(user string, channels []string, token string) *Client {
+	return &Client{
 		User:       user,
 		OAuthToken: token,
 		Channels:   channels,
@@ -33,7 +37,7 @@ func New(user string, channels []string, token string) *TwitchBot {
 	}
 }
 
-func (t *TwitchBot) handle(c *irc.Client, m *irc.Message) {
+func (t *Client) handle(c *irc.Client, m *irc.Message) {
 	fmt.Println(m)
 	switch m.Command {
 	case RPL_WELCOME:
@@ -50,29 +54,34 @@ func (t *TwitchBot) handle(c *irc.Client, m *irc.Message) {
 		if len(m.Params) < 2 {
 			break
 		}
-		target := m.Params[0]
+		channel := m.Params[0]
 		text := ""
 		if len(m.Params) > 1 {
 			text = strings.Join(m.Params[1:], " ")
 		}
 		for expr, handler := range t.handlers {
 			if expr.Match([]byte(text)) {
-				response := handler(&Message{
-					Target: target,
-					Text:   text,
-				})
-				c.Write(fmt.Sprintf("PRIVMSG %s %s", target, response))
+				handler(channel, text, t)
 				break
 			}
 		}
 	}
 }
 
-func (t *TwitchBot) RegisterHandler(expr *regexp.Regexp, h HandlerFunc) {
+func (t *Client) MessageChannel(channel, text string) {
+	t.clientMux.Lock()
+	defer t.clientMux.Unlock()
+	t.client.WriteMessage(&irc.Message{
+		Command: "PRIVMSG",
+		Params:  []string{channel, text},
+	})
+}
+
+func (t *Client) RegisterHandler(expr *regexp.Regexp, h HandlerFunc) {
 	t.handlers[expr] = h
 }
 
-func (t *TwitchBot) Run() error {
+func (t *Client) Run() error {
 	conn, err := tls.Dial("tcp", "irc.chat.twitch.tv:6697", &tls.Config{})
 	if err != nil {
 		return err
@@ -89,5 +98,6 @@ func (t *TwitchBot) Run() error {
 	}
 
 	client := irc.NewClient(conn, cfg)
+	t.client = client
 	return client.Run()
 }
