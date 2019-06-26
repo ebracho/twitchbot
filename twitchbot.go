@@ -51,7 +51,7 @@ func (t *Client) handle(c *irc.Client, m *irc.Message) {
 			Params:  []string{t.User},
 		})
 	case "PRIVMSG":
-		if len(m.Params) < 2 {
+		if len(m.Params) == 0 {
 			break
 		}
 		channel := m.Params[0]
